@@ -3,7 +3,7 @@ title: "AIで誰もが作れる時代に、技術者倫理は誰のものか"
 emoji: "🧭"
 type: "idea"
 topics: ["AI", "技術者倫理", "Winny", "デュアルユース"]
-published: false
+published: true
 ---
 
 ## はじめに
