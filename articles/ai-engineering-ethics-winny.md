@@ -1,5 +1,5 @@
 ---
-title: "AIで誰もが作れる時代に、技術者倫理は誰のものか"
+title: "Winny事件から考える、AI時代の技術者倫理"
 emoji: "🧭"
 type: "idea"
 topics: ["AI", "技術者倫理", "Winny", "デュアルユース"]
