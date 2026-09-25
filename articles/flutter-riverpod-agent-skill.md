@@ -3,7 +3,7 @@ title: "自分の理想のFlutterアーキテクチャをAgent Skillにして公
 emoji: "📚"
 type: "tech"
 topics: ["flutter", "riverpod", "ai"]
-published: false
+published: true
 ---
 
 ## はじめに
@@ -92,6 +92,10 @@ Skillに書いた指示は、設計や実装の一貫性を目指すためのガ
 ## Reading Shelfで試す
 
 方針を試すために、読書記録アプリのReading Shelfを用意しました。書籍検索とページ送り、詳細、本棚、読書記録の編集、言語とテーマの切替ができます。架空の書籍データを使い、Shelf製のローカルAPIが読書記録をJSONへ保存します。
+
+![Reading Shelfの本棚画面](/images/reading-shelf-shelf.png)
+
+*本棚画面。読書中の本と、これから読みたい本を一覧できます。*
 
 構成は`catalog`、`reading`、`settings`に分けています。検索Providerは`catalog/application`、Repositoryの契約は`catalog/domain`、生成APIクライアントを呼ぶ実装は`catalog/data`に置きます。composition rootがRepositoryを生成し、ProviderScopeのoverrideで注入します。([Provider](https://github.com/hiromoo/flutter-riverpod-skill/blob/main/examples/reading_shelf/lib/features/catalog/application/catalog_providers.dart)、[Repository実装](https://github.com/hiromoo/flutter-riverpod-skill/blob/main/examples/reading_shelf/lib/features/catalog/data/api_books_repository.dart))
 
