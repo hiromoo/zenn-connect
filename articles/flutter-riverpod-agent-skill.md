@@ -28,6 +28,8 @@ Flutterでアプリを作るなら、こんな設計にしたい。状態管理�
 
 この場合、さらにViewModelを置いても、Notifierの状態やメソッドを受け渡すだけになりがちです。自分は、画面の操作から状態が変わるまでを追いやすくするために、まずNotifierへ責務をまとめ、別の責務が見えてきたときに分割を考える方針にしています。
 
+データを読み取るだけなら、操作用のNotifierを用意せず、Providerで表現します。たとえば書籍検索では、検索語とページ番号を受け取り、Repositoryから結果を取得します。
+
 ```dart
 @riverpod
 Future<BookSearchPage> bookSearch(
@@ -38,7 +40,7 @@ Future<BookSearchPage> bookSearch(
     ref.watch(booksRepositoryProvider).search(query: query, page: page);
 ```
 
-このProviderは検索条件を入力としてRepositoryから結果を取得します。UIは非同期状態を監視し、読み込み・結果・エラーを表示します。検索画面にDioや生成APIクライアントを持ち込まず、データ取得の実装はRepository側に置きます。
+UIはこのProviderの非同期状態を監視し、読み込み・結果・エラーを表示します。検索画面にDioや生成APIクライアントを持ち込まず、データ取得の実装はRepository側に置きます。
 
 テキストコントローラーやフォーカス、一時的な選択など、そのWidgetが破棄されれば一緒に消えてよい状態は`flutter_hooks`に置きます。共有したい状態やアプリの振る舞いまでHooksに詰め込まず、状態の寿命に応じてRiverpodと使い分けます。
 
@@ -111,9 +113,73 @@ Skillに書いた指示は、設計や実装の一貫性を目指すためのガ
 
 検索と記録編集は`HookConsumerWidget`で、入力Controllerや編集中フラグはHooks、検索結果や保存状態はRiverpodで管理します。状態を寿命に応じて分ける例です。
 
-読書記録の保存はAsyncNotifierが受け持ち、成功後に一覧と対象書籍のProviderをinvalidateして再取得します。画面側がDTOやDioの例外を扱うことはありません。
-
 サンプルには、検索画面のWidget test、APIクライアントのserializer test、Shelf APIのテストと、解析・生成・Web buildを行うGitHub Actionsのworkflowがあります。ここで確認できるテストは限定的です。すべての画面状態や実機ブラウザーでの一連の操作を自動テスト済みという意味ではありません。
+
+### 読書記録の保存をAsyncNotifierで実装する
+
+読書記録の保存では、AsyncNotifierに操作とその実行状態を持たせています。サンプルの[ReadingEntryActions](https://github.com/hiromoo/flutter-riverpod-skill/blob/main/examples/reading_shelf/lib/features/reading/application/reading_providers.dart)から保存部分を抜粋しました。import・part宣言と削除処理は省略しています。
+
+```dart
+@riverpod
+class ReadingEntryActions extends _$ReadingEntryActions {
+  late String _bookId;
+
+  @override
+  FutureOr<void> build(String bookId) {
+    _bookId = bookId;
+  }
+
+  Future<bool> save(ReadingEntry entry) async {
+    if (state.isLoading) return false;
+    state = const AsyncLoading<void>();
+    try {
+      await ref.read(readingRepositoryProvider).save(entry);
+      state = const AsyncData<void>(null);
+      ref.invalidate(readingEntriesProvider);
+      ref.invalidate(readingEntryProvider(_bookId));
+      return true;
+    } catch (error, stackTrace) {
+      state = AsyncError<void>(error, stackTrace);
+      return false;
+    }
+  }
+}
+```
+
+`build`が`FutureOr<void>`を返すため、コード生成によってAsyncNotifierとして扱われ、`state`は`AsyncValue<void>`になります。ここで保持するのは読書記録そのものではなく、保存などの操作の実行状態です。保存中は`AsyncLoading`、成功時は`AsyncData`、失敗時は`AsyncError`へ更新し、成功したら一覧と対象書籍の読書記録をinvalidateして、監視中のデータを再取得します。
+
+Widget側では、入力ControllerをHooksで管理し、保存状態を`ref.watch`で監視します。[編集画面](https://github.com/hiromoo/flutter-riverpod-skill/blob/main/examples/reading_shelf/lib/features/reading/presentation/reading_editor_screen.dart)を、既存の読書記録のメモだけを編集する例に簡略化すると、次の形です。コードは`HookConsumerWidget`の`build`内に置き、`entry`は読み込み済みの`ReadingEntry`、`bookId`はその書籍IDとします。
+
+```dart
+final noteController = useTextEditingController(text: entry.note);
+final action = ref.watch(readingEntryActionsProvider(bookId));
+
+return Column(
+  children: [
+    TextField(
+      controller: noteController,
+      enabled: !action.isLoading,
+      maxLength: 2000,
+      decoration: InputDecoration(labelText: context.l.note),
+    ),
+    if (action.hasError) Text(context.l.saveFailed),
+    FilledButton(
+      onPressed: action.isLoading
+          ? null
+          : () async {
+              await ref
+                  .read(readingEntryActionsProvider(bookId).notifier)
+                  .save(entry.copyWith(note: noteController.text.trim()));
+            },
+      child: Text(action.isLoading ? context.l.saving : context.l.save),
+    ),
+  ],
+);
+```
+
+入力中のメモは`noteController`が保持し、保存ボタンを押した時点で`copyWith`により保存用のモデルへ反映します。Controllerの生成と破棄は`useTextEditingController`がWidgetの寿命に合わせて管理し、保存中・失敗などの実行状態はAsyncNotifierが管理します。なお、`text: entry.note`はController生成時の初期値なので、この簡略例は同じ記録を編集する間の処理を示しています。
+
+Widgetは保存中の表示や入力・ボタンの無効化、エラーメッセージの表示を受け持ちます。保存先のRepositoryを呼び出し、関連データの更新を促す処理はNotifierが受け持つので、この例ではその間をつなぐViewModelを別に設けていません。
 
 ### サンプルを作ってSkillに戻したこと
 
